@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kalshi — Tennis Odds Dashboard</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+:root {
+  --bg:       #060a0f;
+  --bg2:      #0c1420;
+  --bg3:      #111d2e;
+  --border:   #1a2e45;
+  --accent:   #00d4aa;
+  --blue:     #0096ff;
+  --text:     #8ab4d4;
+  --text-hi:  #cde4f7;
+  --green:    #00e676;
+  --red:      #ff4f4f;
+  --live-clr: #00e676;
+}
+body {
+  background:var(--bg); color:var(--text);
+  font-family:'Fira Mono','Cascadia Code','Consolas',monospace;
+  font-size:12px; min-height:100vh; display:flex; flex-direction:column;
+}
+#topbar {
+  display:flex; align-items:center; gap:12px; padding:10px 16px;
+  background:var(--bg2); border-bottom:1px solid var(--border);
+  flex-shrink:0; flex-wrap:wrap; position:sticky; top:0; z-index:100;
+}
+.logo { color:var(--accent); font-weight:700; font-size:14px; letter-spacing:.07em; }
+.logo span { color:var(--text); font-weight:400; font-size:11px; }
+#dot { width:9px; height:9px; border-radius:50%; background:#2a4060; flex-shrink:0; }
+#dot.live { background:var(--green); box-shadow:0 0 7px var(--green); animation:pulse 2s infinite; }
+#dot.err  { background:var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+#conn-label { font-size:11px; }
+.ctrl {
+  background:var(--bg3); border:1px solid var(--border); color:var(--text);
+  font-family:inherit; font-size:11px; padding:4px 8px; outline:none; cursor:pointer;
+}
+.ctrl:focus, .ctrl:hover { border-color:var(--accent); }
+button.ctrl { cursor:pointer; }
+button.ctrl:hover { color:var(--text-hi); }
+#stats {
+  margin-left:auto; font-size:10px; color:#3a6080;
+  display:flex; gap:14px; white-space:nowrap;
+}
+#stats b { color:var(--accent); }
+#toolbar {
+  display:flex; gap:8px; align-items:center; padding:8px 16px;
+  background:var(--bg2); border-bottom:1px solid var(--border);
+  flex-wrap:wrap;
+}
+#search {
+  background:var(--bg3); border:1px solid var(--border); color:var(--text-hi);
+  font-family:inherit; font-size:11px; padding:5px 10px; outline:none; width:220px;
+}
+#search:focus { border-color:var(--accent); }
+.pill {
+  background:var(--bg3); border:1px solid var(--border); color:var(--text);
+  font-family:inherit; font-size:10px; padding:3px 9px; cursor:pointer;
+}
+.pill:hover  { border-color:var(--accent); color:var(--text-hi); }
+.pill.active { border-color:var(--accent); color:var(--accent); background:rgba(0,212,170,.06); }
+#count-label { color:#3a6080; font-size:10px; margin-left:auto; }
+#grid {
+  flex:1; padding:10px 16px;
+  display:grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px,1fr));
+  gap:8px;
+  align-content:start;
+}
+.card {
+  background:var(--bg2); border:1px solid var(--border);
+  padding:0; overflow:hidden;
+  transition:border-color .15s;
+}
+.card:hover { border-color:#2a4060; }
+.card-header {
+  display:flex; align-items:center; gap:6px;
+  padding:7px 10px 5px;
+  border-bottom:1px solid var(--border);
+}
+.card-match {
+  color:var(--text-hi); font-size:12px; font-weight:600;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;
+}
+.card-series {
+  color:var(--accent); font-size:9px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; max-width:120px;
+}
+.card-round {
+  color:#3a6080; font-size:9px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; max-width:100px;
+}
+.live-badge {
+  background:var(--green); color:#000; font-size:8px; font-weight:700;
+  padding:1px 5px; flex-shrink:0;
+}
+.odds-row {
+  display:grid; grid-template-columns:1fr 1fr;
+  gap:1px; padding:6px;
+  background:var(--border);
+}
+.odds-cell {
+  background:var(--bg3); padding:8px 6px; text-align:center;
+  display:flex; flex-direction:column; gap:3px; position:relative;
+  overflow:hidden;
+}
+.sel-label {
+  color:#3a6080; font-size:9px; text-transform:uppercase;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sel-odd {
+  color:var(--text-hi); font-size:18px; font-weight:600;
+  transition:color .1s;
+}
+.sel-odd.no-data { color:#2a4060; font-size:14px; }
+.sel-pct {
+  color:#3a6080; font-size:10px;
+}
+.flash-up, .flash-down {
+  position:absolute; inset:0; pointer-events:none; opacity:0;
+}
+.flash-up   { background:rgba(0,230,118,.18); }
+.flash-down { background:rgba(255,79,79,.18); }
+@keyframes flash-anim {
+  0%   { opacity:1; }
+  100% { opacity:0; }
+}
+.flashing-up   .flash-up   { animation: flash-anim .6s ease-out forwards; }
+.flashing-down .flash-down { animation: flash-anim .6s ease-out forwards; }
+.trend { font-size:9px; display:inline-block; margin-left:3px; }
+.trend.up   { color:var(--green); }
+.trend.down { color:var(--red); }
+.card-footer {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:4px 10px; border-top:1px solid rgba(26,46,69,.5);
+}
+.card-mid  { color:#2a4060; font-size:9px; }
+.card-age  { color:#2a4060; font-size:9px; }
+#empty {
+  grid-column:1/-1; text-align:center; padding:80px 0;
+  color:#2a4060; font-size:13px; display:none;
+}
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#2a4060; border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">KALSHI <span>/ Tennis Odds</span></div>
+  <span id="dot"></span>
+  <span id="conn-label">—</span>
+  <input id="api-url" class="ctrl" style="width:190px" value="http://localhost:5991">
+  <button class="ctrl" onclick="reconnect()">Connect</button>
+  <div id="stats">
+    <span>Matches: <b id="st-matches">0</b></span>
+    <span>Updates: <b id="st-updates">0</b></span>
+    <span>Streams: <b id="st-streams">0</b></span>
+  </div>
+</div>
+
+<div id="toolbar">
+  <input id="search" placeholder="Search player or tournament..." oninput="applyFilters()">
+  <button class="pill active" data-filter="all"      onclick="setFilter(this)">All</button>
+  <button class="pill"        data-filter="moneyline" onclick="setFilter(this)">Moneyline</button>
+  <button class="pill"        data-filter="spread"    onclick="setFilter(this)">Spreads</button>
+  <span id="count-label">0 matches</span>
+</div>
+
+<div id="grid">
+  <div id="empty">Waiting for data...</div>
+</div>
+
+<script>
+const matchState = {};
+let activeFilter = 'all';
+let updateCount = 0;
+
+const BASE = window.KALSHI_URL?.replace(/\/$/, "") ?? "http://localhost:5991";
+function getBase() { return document.getElementById('api-url').value.replace(/\/$/,'') || BASE; }
+
+let _retryDelay = 1000;
+let _es = null;
+
+function connectSSE() {
+  _es = new EventSource(getBase() + '/stream');
+
+  _es.onopen = () => {
+    _retryDelay = 1000;
+    setStatus('live');
+    startStatsPoll();
+  };
+
+  _es.onmessage = (e) => {
+    let msg; try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type === 'price')    handlePrice(msg);
+    if (msg.type === 'snapshot') handleSnapshot(msg);
+  };
+
+  _es.onerror = () => {
+    _es.close();
+    setStatus('err');
+    setTimeout(() => {
+      _retryDelay = Math.min(_retryDelay * 2, 30_000);
+      connectSSE();
+    }, _retryDelay);
+  };
+}
+
+async function reconnect() {
+  if (_es) { _es.close(); _es = null; }
+  _retryDelay = 1000;
+  setStatus('connecting');
+
+  try {
+    const [marketsRes, pricesRes] = await Promise.all([
+      fetch(getBase() + '/markets'),
+      fetch(getBase() + '/prices'),
+    ]);
+    const markets = await marketsRes.json();
+    const prices  = await pricesRes.json();
+
+    for (const [mid, meta] of Object.entries(markets)) {
+      _ensureMatchState(mid, meta);
+      for (const [mkt, odds] of Object.entries(prices[mid] || {})) {
+        Object.assign(matchState[mid].odds, odds);
+        matchState[mid].market = mkt;
+      }
+      _ensureCard(mid);
+      updateCard(mid);
+    }
+    for (const [mid, mktMap] of Object.entries(prices)) {
+      if (matchState[mid] && matchState[mid].cardEl) continue;
+      _ensureMatchState(mid, {});
+      for (const [mkt, odds] of Object.entries(mktMap)) {
+        Object.assign(matchState[mid].odds, odds);
+        matchState[mid].market = mkt;
+      }
+      _ensureCard(mid);
+      updateCard(mid);
+    }
+    applyFilters();
+  } catch (err) {
+    console.warn('[kalshi] bootstrap failed:', err);
+  }
+
+  connectSSE();
+}
+
+function _ensureMatchState(mid, meta) {
+  if (!matchState[mid]) {
+    matchState[mid] = { meta: {}, odds: {}, prevOdds: {}, lastTs: Date.now(), market: 'moneyline' };
+  }
+  Object.assign(matchState[mid].meta, meta);
+}
+
+function _ensureCard(mid) {
+  if (!matchState[mid].cardEl) {
+    matchState[mid].cardEl = createCard(mid);
+    document.getElementById('grid').appendChild(matchState[mid].cardEl);
+    document.getElementById('empty').style.display = 'none';
+  }
+}
+
+function handlePrice(msg) {
+  const mid = String(msg.match_id);
+  updateCount++;
+  document.getElementById('st-updates').textContent = updateCount;
+
+  _ensureMatchState(mid, msg.meta || {});
+  const ms = matchState[mid];
+  ms.lastTs = Date.now();
+  ms.market = msg.market || 'moneyline';
+  Object.assign(ms.prevOdds, ms.odds);
+  Object.assign(ms.odds, msg.odds);
+
+  _ensureCard(mid);
+  updateCard(mid);
+  applyFilters();
+}
+
+function handleSnapshot(msg) {
+  const prices = msg.prices || {};
+  for (const [mid, markets] of Object.entries(prices)) {
+    _ensureMatchState(mid, {});
+    const ms = matchState[mid];
+    for (const [mkt, odds] of Object.entries(markets)) {
+      Object.assign(ms.odds, odds);
+      ms.market = mkt;
+    }
+    _ensureCard(mid);
+    updateCard(mid);
+  }
+  applyFilters();
+}
+
+function createCard(mid) {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.dataset.mid = mid;
+  div.innerHTML = `
+    <div class="card-header">
+      <div class="card-match" id="cm-${mid}">—</div>
+      <div class="card-round"  id="cr-${mid}"></div>
+      <div class="card-series" id="cs-${mid}"></div>
+    </div>
+    <div class="odds-row">
+      ${makeCell(mid, '0')}
+      ${makeCell(mid, '1')}
+    </div>
+    <div class="card-footer">
+      <span class="card-mid" id="cmid-${mid}">${mid}</span>
+      <span class="card-age" id="cage-${mid}">—</span>
+    </div>`;
+  return div;
+}
+
+function makeCell(mid, idx) {
+  const id = 'cell_' + mid + '_' + idx;
+  return `
+    <div class="odds-cell" id="${id}">
+      <div class="sel-label" id="lbl-${id}">—</div>
+      <div class="sel-odd no-data" id="odd-${id}">—</div>
+      <div class="sel-pct" id="pct-${id}"></div>
+      <div class="flash-up"></div>
+      <div class="flash-down"></div>
+    </div>`;
+}
+
+function updateCard(mid) {
+  const ms = matchState[mid];
+  const meta = ms.meta;
+
+  const matchEl = document.getElementById('cm-' + mid);
+  const seriesEl = document.getElementById('cs-' + mid);
+  const roundEl = document.getElementById('cr-' + mid);
+  const ageEl = document.getElementById('cage-' + mid);
+  const midEl = document.getElementById('cmid-' + mid);
+
+  if (matchEl && meta.match_name) matchEl.textContent = meta.match_name;
+  if (seriesEl) seriesEl.textContent = meta.series || meta.tournament || '';
+  if (roundEl) roundEl.textContent = meta.round || '';
+  if (ageEl) ageEl.textContent = timeAgo(ms.lastTs);
+  if (midEl) midEl.textContent = mid;
+
+  const header = ms.cardEl.querySelector('.card-header');
+  let liveBadge = ms.cardEl.querySelector('.live-badge');
+  if (meta.is_live && !liveBadge) {
+    liveBadge = document.createElement('span');
+    liveBadge.className = 'live-badge';
+    liveBadge.textContent = 'LIVE';
+    header.insertBefore(liveBadge, header.firstChild);
+  } else if (!meta.is_live && liveBadge) {
+    liveBadge.remove();
+  }
+
+  const players = meta.players && meta.players.length ? meta.players : Object.keys(ms.odds);
+
+  for (let i = 0; i < 2; i++) {
+    const player = players[i];
+    const cid = 'cell_' + mid + '_' + i;
+    const cell = document.getElementById(cid);
+    if (!cell) continue;
+
+    const lblEl = document.getElementById('lbl-' + cid);
+    const oddEl = document.getElementById('odd-' + cid);
+    const pctEl = document.getElementById('pct-' + cid);
+
+    if (player) {
+      const odd = ms.odds[player];
+      const prevOdd = ms.prevOdds[player];
+
+      lblEl.textContent = player;
+
+      if (odd !== undefined && odd !== null) {
+        oddEl.textContent = (odd * 100).toFixed(1) + '%';
+        oddEl.classList.remove('no-data');
+        pctEl.textContent = (odd).toFixed(4);
+
+        let trendHtml = '';
+        if (prevOdd !== undefined && prevOdd !== odd) {
+          const dir = odd > prevOdd ? 'up' : 'down';
+          trendHtml = `<span class="trend ${dir}">${dir==='up' ? '▲' : '▼'}</span>`;
+          flashCell(cell, dir);
+        }
+        oddEl.innerHTML = (odd * 100).toFixed(1) + '%' + trendHtml;
+      }
+    } else {
+      lblEl.textContent = '—';
+      oddEl.textContent = '—';
+      oddEl.classList.add('no-data');
+      pctEl.textContent = '';
+    }
+  }
+
+  ms.cardEl.dataset.market = ms.market || 'moneyline';
+  ms.cardEl.dataset.matchname = (meta.match_name || '').toLowerCase();
+  ms.cardEl.dataset.series = (meta.series || meta.tournament || '').toLowerCase();
+  ms.cardEl.dataset.players = players.join(' ').toLowerCase();
+}
+
+function flashCell(cell, dir) {
+  cell.classList.remove('flashing-up', 'flashing-down');
+  void cell.offsetWidth;
+  cell.classList.add(dir === 'up' ? 'flashing-up' : 'flashing-down');
+  setTimeout(() => cell.classList.remove('flashing-up','flashing-down'), 700);
+}
+
+function setFilter(el) {
+  document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  activeFilter = el.dataset.filter;
+  applyFilters();
+}
+
+function applyFilters() {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+  let vis = 0;
+  for (const ms of Object.values(matchState)) {
+    if (!ms.cardEl) continue;
+    const card = ms.cardEl;
+
+    let show = true;
+    if (activeFilter === 'moneyline' && card.dataset.market !== 'moneyline') show = false;
+    if (activeFilter === 'spread' && !card.dataset.market.includes('spread')) show = false;
+    if (q) {
+      const nm = card.dataset.matchname || '';
+      const sr = card.dataset.series || '';
+      const pl = card.dataset.players || '';
+      if (!nm.includes(q) && !sr.includes(q) && !pl.includes(q)) show = false;
+    }
+    card.style.display = show ? '' : 'none';
+    if (show) vis++;
+  }
+  document.getElementById('count-label').textContent = `${vis} match${vis!==1?'es':''}`;
+  document.getElementById('empty').style.display =
+    vis === 0 && Object.keys(matchState).length > 0 ? 'block' : 'none';
+}
+
+let _statsPollId = null;
+function startStatsPoll() {
+  if (_statsPollId) return;
+  _statsPollId = setInterval(async () => {
+    try {
+      const r = await fetch(getBase() + '/status');
+      const d = await r.json();
+      document.getElementById('st-matches').textContent = d.matches || '0';
+      document.getElementById('st-streams').textContent = d.streams || '0';
+    } catch {}
+  }, 5000);
+}
+
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 5)  return 'just now';
+  if (s < 60) return s + 's ago';
+  return Math.floor(s/60) + 'm ago';
+}
+
+setInterval(() => {
+  for (const [mid, ms] of Object.entries(matchState)) {
+    const el = document.getElementById('cage-' + mid);
+    if (el) el.textContent = timeAgo(ms.lastTs);
+  }
+}, 10000);
+
+function setStatus(s) {
+  const dot = document.getElementById('dot');
+  const lbl = document.getElementById('conn-label');
+  if (s === 'live')     { dot.className = 'live'; lbl.textContent = 'LIVE'; }
+  else if (s === 'err') { dot.className = 'err';  lbl.textContent = 'ERR — retrying'; }
+  else                  { dot.className = '';     lbl.textContent = 'connecting...'; }
+}
+
+reconnect();
+</script>
+</body>
+</html>

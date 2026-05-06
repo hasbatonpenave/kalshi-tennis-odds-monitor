@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kalshi — Odds Chart</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+:root {
+  --bg:   #060a0f; --bg2: #0c1420; --bg3: #111d2e;
+  --border: #1a2e45; --accent: #00d4aa;
+  --text: #8ab4d4; --text-hi: #cde4f7;
+  --green: #00e676; --red: #ff4f4f;
+}
+body {
+  background:var(--bg); color:var(--text);
+  font-family:'Fira Mono','Cascadia Code','Consolas',monospace;
+  font-size:12px; height:100vh; display:flex; flex-direction:column;
+}
+#topbar {
+  display:flex; align-items:center; gap:12px; padding:8px 16px;
+  background:var(--bg2); border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.logo { color:var(--accent); font-weight:700; font-size:14px; }
+.logo span { color:var(--text); font-weight:400; font-size:11px; }
+.ctrl {
+  background:var(--bg3); border:1px solid var(--border); color:var(--text);
+  font-family:inherit; font-size:11px; padding:4px 8px; outline:none; cursor:pointer;
+}
+button.ctrl:hover { color:var(--text-hi); border-color:var(--accent); }
+select.ctrl { cursor:pointer; }
+#layout { display:flex; flex:1; overflow:hidden; }
+#sidebar {
+  width:280px; background:var(--bg2); border-right:1px solid var(--border);
+  overflow-y:auto; flex-shrink:0;
+}
+#sidebar h3 {
+  color:var(--accent); font-size:11px; padding:10px 12px 6px;
+  border-bottom:1px solid var(--border);
+}
+.match-item {
+  padding:8px 12px; cursor:pointer; border-bottom:1px solid rgba(26,46,69,.4);
+  transition:background .12s;
+}
+.match-item:hover { background:var(--bg3); }
+.match-item.active { background:rgba(0,212,170,.08); border-left:2px solid var(--accent); }
+.match-item .name { color:var(--text-hi); font-size:11px; margin-bottom:3px; }
+.match-item .info { color:#3a6080; font-size:9px; }
+#main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+#chart-area { flex:1; position:relative; padding:10px; }
+#controls {
+  display:flex; gap:8px; align-items:center; padding:8px 16px;
+  background:var(--bg2); border-top:1px solid var(--border); flex-wrap:wrap;
+}
+.sel-pill {
+  background:var(--bg3); border:1px solid var(--border); color:var(--text);
+  font-family:inherit; font-size:10px; padding:3px 9px; cursor:pointer;
+}
+.sel-pill:hover { border-color:var(--accent); }
+.sel-pill.active { border-color:var(--accent); color:var(--accent); }
+.time-pill {
+  background:var(--bg3); border:1px solid var(--border); color:var(--text);
+  font-family:inherit; font-size:10px; padding:3px 9px; cursor:pointer;
+}
+.time-pill:hover { border-color:var(--accent); }
+.time-pill.active { border-color:var(--accent); color:var(--accent); }
+#info-bar {
+  display:flex; gap:16px; padding:6px 16px; font-size:10px;
+  background:var(--bg2); border-top:1px solid var(--border);
+}
+#info-bar span { color:#3a6080; }
+#info-bar b { color:var(--accent); }
+#loading { color:#2a4060; text-align:center; padding:60px 0; font-size:12px; }
+::-webkit-scrollbar { width:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#2a4060; border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">KALSHI <span>/ Odds Chart</span></div>
+  <input id="api-url" class="ctrl" style="width:190px" value="http://localhost:5991">
+  <button class="ctrl" onclick="loadMatches()">Reload</button>
+</div>
+
+<div id="layout">
+  <div id="sidebar">
+    <h3>Tennis Matches</h3>
+    <div id="match-list"><div id="loading">Loading matches...</div></div>
+  </div>
+  <div id="main">
+    <div id="chart-area"><canvas id="chart"></canvas></div>
+    <div id="controls">
+      <span style="color:#3a6080;font-size:10px">Selection:</span>
+      <span id="sel-pills"></span>
+      <span style="margin-left:12px;color:#3a6080;font-size:10px">Window:</span>
+      <button class="time-pill active" data-min="5" onclick="setWindow(this)">5m</button>
+      <button class="time-pill" data-min="15" onclick="setWindow(this)">15m</button>
+      <button class="time-pill" data-min="60" onclick="setWindow(this)">1h</button>
+      <button class="time-pill" data-min="360" onclick="setWindow(this)">6h</button>
+      <button class="time-pill" data-min="0" onclick="setWindow(this)">All</button>
+    </div>
+    <div id="info-bar">
+      <span>Current: <b id="info-cur">—</b></span>
+      <span>Min: <b id="info-min">—</b></span>
+      <span>Max: <b id="info-max">—</b></span>
+      <span>Delta: <b id="info-delta">—</b></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = window.KALSHI_URL?.replace(/\/$/, "") ?? "http://localhost:5991";
+function getBase() { return document.getElementById('api-url').value.replace(/\/$/,'') || BASE; }
+
+let chart = null;
+let activeMatch = null;
+let activeSelection = null;
+let timeWindow = 5; // minutes
+let livePoints = [];
+let _es = null;
+
+async function loadMatches() {
+  const listEl = document.getElementById('match-list');
+  listEl.innerHTML = '<div id="loading">Loading matches...</div>';
+
+  try {
+    const [marketsRes, pricesRes] = await Promise.all([
+      fetch(getBase() + '/markets'),
+      fetch(getBase() + '/prices'),
+    ]);
+    const markets = await marketsRes.json();
+    const prices  = await pricesRes.json();
+
+    const matchIds = new Set([
+      ...Object.keys(markets),
+      ...Object.keys(prices),
+    ]);
+
+    if (matchIds.size === 0) {
+      listEl.innerHTML = '<div id="loading">No matches yet. Start the server.</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    for (const mid of matchIds) {
+      const meta = markets[mid] || {};
+      const odds = prices[mid] || {};
+      const mktKey = Object.keys(odds)[0] || 'moneyline';
+      const mktOdds = odds[mktKey] || {};
+      const players = meta.players && meta.players.length
+        ? meta.players : Object.keys(mktOdds);
+      const matchName = meta.match_name || players.join(' vs ') || mid;
+
+      const div = document.createElement('div');
+      div.className = 'match-item';
+      div.dataset.mid = mid;
+      div.innerHTML = `
+        <div class="name">${matchName}</div>
+        <div class="info">${meta.series || meta.tournament || ''} ${meta.round || ''} · ${players.length} players</div>`;
+      div.onclick = () => selectMatch(mid, players, mktKey);
+      listEl.appendChild(div);
+    }
+
+    // Auto-select first match
+    const first = listEl.querySelector('.match-item');
+    if (first) first.click();
+
+  } catch (err) {
+    listEl.innerHTML = `<div id="loading">Error: ${err.message}</div>`;
+  }
+}
+
+function selectMatch(mid, players, market) {
+  activeMatch = mid;
+  activeSelection = players[0] || null;
+  livePoints = [];
+
+  document.querySelectorAll('.match-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.match-item[data-mid="${mid}"]`)?.classList.add('active');
+
+  // Build selection pills
+  const pillsEl = document.getElementById('sel-pills');
+  pillsEl.innerHTML = '';
+  for (const p of players) {
+    const btn = document.createElement('button');
+    btn.className = 'sel-pill' + (p === activeSelection ? ' active' : '');
+    btn.textContent = p;
+    btn.onclick = () => { activeSelection = p; fetchHistory(); };
+    pillsEl.appendChild(btn);
+  }
+
+  fetchHistory();
+  startSSE();
+}
+
+async function fetchHistory() {
+  if (!activeMatch || !activeSelection) return;
+
+  try {
+    const params = new URLSearchParams({
+      match_id: activeMatch,
+      selection: activeSelection,
+      market: 'moneyline',
+      limit: 5000,
+    });
+    const res = await fetch(getBase() + '/history?' + params);
+    const rows = await res.json();
+
+    // Convert to chart points
+    livePoints = rows.map(r => ({ x: r.ts * 1000, y: r.odd }));
+
+    // Add latest in-memory point
+    try {
+      const pricesRes = await fetch(getBase() + '/prices');
+      const prices = await pricesRes.json();
+      const mktOdds = (prices[activeMatch] || {})['moneyline'] || (prices[activeMatch] || {})['game_spread'] || {};
+      const cur = mktOdds[activeSelection];
+      if (cur !== undefined) {
+        const lastTs = livePoints.length ? livePoints[livePoints.length - 1].x : Date.now();
+        if (Date.now() - lastTs > 2000) {
+          livePoints.push({ x: Date.now(), y: cur });
+        }
+      }
+    } catch {}
+
+    drawChart();
+  } catch (err) {
+    console.warn('history fetch failed:', err);
+  }
+}
+
+function drawChart() {
+  const ctx = document.getElementById('chart').getContext('2d');
+  const now = Date.now();
+  let filtered = livePoints;
+  if (timeWindow > 0) {
+    const cutoff = now - timeWindow * 60 * 1000;
+    filtered = livePoints.filter(p => p.x >= cutoff);
+  }
+
+  if (chart) chart.destroy();
+
+  const odds = filtered.map(p => p.y);
+  const cur = odds.length ? odds[odds.length - 1] : null;
+  const mn  = odds.length ? Math.min(...odds) : null;
+  const mx  = odds.length ? Math.max(...odds) : null;
+  const first = odds.length ? odds[0] : null;
+  const delta = cur !== null && first !== null ? (cur - first) : null;
+
+  document.getElementById('info-cur').textContent = cur !== null ? (cur * 100).toFixed(1) + '%' : '—';
+  document.getElementById('info-min').textContent = mn !== null ? (mn * 100).toFixed(1) + '%' : '—';
+  document.getElementById('info-max').textContent = mx !== null ? (mx * 100).toFixed(1) + '%' : '—';
+  document.getElementById('info-delta').textContent = delta !== null
+    ? (delta >= 0 ? '+' : '') + (delta * 100).toFixed(1) + 'pp'
+    : '—';
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: activeSelection || 'odds',
+        data: filtered,
+        borderColor: '#00d4aa',
+        backgroundColor: 'rgba(0,212,170,0.08)',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.1,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            unit: timeWindow <= 15 ? 'minute' : timeWindow <= 60 ? 'minute' : 'hour',
+            displayFormats: { minute: 'HH:mm', hour: 'HH:mm' },
+          },
+          grid: { color: '#1a2e45' },
+          ticks: { color: '#3a6080', font: { size: 10 } },
+        },
+        y: {
+          min: 0,
+          max: 1,
+          ticks: {
+            color: '#3a6080',
+            font: { size: 10 },
+            callback: v => (v * 100).toFixed(0) + '%',
+          },
+          grid: { color: '#1a2e45' },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => (ctx.parsed.y * 100).toFixed(1) + '%',
+          },
+        },
+      },
+    },
+  });
+}
+
+function setWindow(el) {
+  document.querySelectorAll('.time-pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  timeWindow = parseInt(el.dataset.min);
+  drawChart();
+}
+
+function startSSE() {
+  if (_es) _es.close();
+  _es = new EventSource(getBase() + '/stream');
+
+  _es.onmessage = (e) => {
+    let msg; try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type !== 'price') return;
+    if (String(msg.match_id) !== activeMatch) return;
+
+    const odd = (msg.odds || {})[activeSelection];
+    if (odd === undefined) return;
+
+    livePoints.push({ x: msg.ts * 1000, y: odd });
+    // Trim old points beyond 24h
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    while (livePoints.length > 1 && livePoints[0].x < cutoff) livePoints.shift();
+
+    drawChart();
+  };
+
+  _es.onerror = () => {
+    _es.close();
+    setTimeout(startSSE, 5000);
+  };
+}
+
+loadMatches();
+</script>
+</body>
+</html>

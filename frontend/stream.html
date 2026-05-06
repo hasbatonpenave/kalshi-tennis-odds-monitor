@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kalshi — SSE Stream Log</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+:root {
+  --bg: #060a0f; --bg2: #0c1420; --bg3: #111d2e;
+  --border: #1a2e45; --accent: #00d4aa;
+  --text: #8ab4d4; --text-hi: #cde4f7;
+  --green: #00e676; --red: #ff4f4f;
+}
+body {
+  background:var(--bg); color:var(--text);
+  font-family:'Fira Mono','Cascadia Code','Consolas',monospace;
+  font-size:11px; height:100vh; display:flex; flex-direction:column;
+}
+#topbar {
+  display:flex; align-items:center; gap:10px; padding:8px 16px;
+  background:var(--bg2); border-bottom:1px solid var(--border);
+  flex-shrink:0; flex-wrap:wrap;
+}
+.logo { color:var(--accent); font-weight:700; font-size:14px; }
+.logo span { color:var(--text); font-weight:400; font-size:11px; }
+#dot { width:9px; height:9px; border-radius:50%; background:#2a4060; flex-shrink:0; }
+#dot.live { background:var(--green); box-shadow:0 0 7px var(--green); animation:pulse 2s infinite; }
+#dot.err  { background:var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.ctrl {
+  background:var(--bg3); border:1px solid var(--border); color:var(--text);
+  font-family:inherit; font-size:10px; padding:3px 8px; outline:none; cursor:pointer;
+}
+button.ctrl:hover { color:var(--text-hi); border-color:var(--accent); }
+button.ctrl.active { border-color:var(--accent); color:var(--accent); }
+#counter { color:var(--accent); font-size:12px; margin-left:auto; }
+#log {
+  flex:1; overflow-y:auto; padding:6px 0;
+  font-family:'Fira Mono','Cascadia Code','Consolas',monospace;
+  font-size:11px; line-height:1.5;
+}
+.log-row {
+  padding:2px 16px; border-bottom:1px solid rgba(26,46,69,.2);
+  display:flex; gap:10px; align-items:baseline;
+}
+.log-row:hover { background:rgba(0,212,170,.03); }
+.log-ts    { color:#2a4060; font-size:10px; white-space:nowrap; min-width:70px; }
+.log-badge {
+  font-size:9px; padding:0 4px; white-space:nowrap; min-width:52px; text-align:center;
+}
+.badge-price    { color:var(--accent); border:1px solid rgba(0,212,170,.3); }
+.badge-snapshot { color:var(--blue);   border:1px solid rgba(0,150,255,.3); }
+.log-mid   { color:#3a6080; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:280px; }
+.log-odds  { color:var(--text-hi); white-space:nowrap; }
+::-webkit-scrollbar { width:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#2a4060; border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">KALSHI <span>/ SSE Stream Log</span></div>
+  <span id="dot"></span>
+  <input id="api-url" class="ctrl" style="width:190px" value="http://localhost:5991">
+  <button class="ctrl" onclick="connect_()">Connect</button>
+  <button class="ctrl active" id="btn-pause" onclick="togglePause()">Pause</button>
+  <button class="ctrl" onclick="clearLog()">Clear</button>
+  <select id="type-filter" class="ctrl" onchange="applyFilter()">
+    <option value="all">All events</option>
+    <option value="price">Price only</option>
+    <option value="snapshot">Snapshot only</option>
+  </select>
+  <span id="counter">0 events</span>
+</div>
+
+<div id="log"></div>
+
+<script>
+const BASE = window.KALSHI_URL?.replace(/\/$/, "") ?? "http://localhost:5991";
+function getBase() { return document.getElementById('api-url').value.replace(/\/$/,'') || BASE; }
+
+let _es = null;
+let paused = false;
+let eventCount = 0;
+let pending = [];
+const MAX_ROWS = 600;
+
+function connect_() {
+  if (_es) _es.close();
+  _es = new EventSource(getBase() + '/stream');
+
+  _es.onopen = () => {
+    document.getElementById('dot').className = 'live';
+  };
+
+  _es.onmessage = (e) => {
+    eventCount++;
+    document.getElementById('counter').textContent = eventCount + ' events';
+
+    if (paused) {
+      pending.push(e.data);
+      return;
+    }
+
+    let msg; try { msg = JSON.parse(e.data); } catch { msg = null; }
+    appendRow(msg, e.data);
+  };
+
+  _es.onerror = () => {
+    _es.close();
+    document.getElementById('dot').className = 'err';
+    setTimeout(connect_, 5000);
+  };
+}
+
+function appendRow(msg, raw) {
+  const filter = document.getElementById('type-filter').value;
+  const etype = msg?.type || 'unknown';
+  if (filter !== 'all' && filter !== etype) return;
+
+  const log = document.getElementById('log');
+  const row = document.createElement('div');
+  row.className = 'log-row';
+  row.dataset.type = etype;
+
+  const ts = msg?.ts ? new Date(msg.ts * 1000).toISOString().substr(11, 8) : '--:--:--';
+  const badge = etype === 'snapshot'
+    ? '<span class="log-badge badge-snapshot">SNAP</span>'
+    : '<span class="log-badge badge-price">PRICE</span>';
+
+  let oddsText = '';
+  if (msg?.odds) {
+    oddsText = Object.entries(msg.odds)
+      .map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`)
+      .join('  ');
+  }
+
+  row.innerHTML = `
+    <span class="log-ts">${ts}</span>
+    ${badge}
+    <span class="log-mid" title="${msg?.match_id || ''}">${msg?.match_id || '—'}</span>
+    <span class="log-odds">${oddsText || JSON.stringify(msg).substring(0, 120)}</span>`;
+
+  log.insertBefore(row, log.firstChild);
+
+  // Limit rows
+  while (log.children.length > MAX_ROWS) {
+    log.removeChild(log.lastChild);
+  }
+}
+
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById('btn-pause');
+  if (paused) {
+    btn.classList.remove('active');
+    btn.textContent = 'Resume';
+  } else {
+    btn.classList.add('active');
+    btn.textContent = 'Pause';
+    // Flush pending
+    for (const data of pending) {
+      let msg; try { msg = JSON.parse(data); } catch { msg = null; }
+      appendRow(msg, data);
+    }
+    pending = [];
+  }
+}
+
+function clearLog() {
+  document.getElementById('log').innerHTML = '';
+  eventCount = 0;
+  document.getElementById('counter').textContent = '0 events';
+}
+
+function applyFilter() {
+  const filter = document.getElementById('type-filter').value;
+  for (const row of document.querySelectorAll('.log-row')) {
+    if (filter === 'all') {
+      row.style.display = '';
+    } else {
+      row.style.display = row.dataset.type === filter ? '' : 'none';
+    }
+  }
+}
+
+connect_();
+</script>
+</body>
+</html>
