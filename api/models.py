@@ -46,8 +46,8 @@ class OddsUpdate(BaseModel):
     @classmethod
     def odds_must_be_valid(cls, v):
         for name, odd in v.items():
-            if not (0.0 <= odd <= 1.0):
-                raise ValueError(f"odd {name}={odd} out of range [0.0, 1.0]")
+            if odd < 1.001:
+                raise ValueError(f"odd {name}={odd} below minimum 1.001")
         return v
 
 

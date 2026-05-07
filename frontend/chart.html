@@ -251,11 +251,11 @@ function drawChart() {
   const first = odds.length ? odds[0] : null;
   const delta = cur !== null && first !== null ? (cur - first) : null;
 
-  document.getElementById('info-cur').textContent = cur !== null ? (cur * 100).toFixed(1) + '%' : '—';
-  document.getElementById('info-min').textContent = mn !== null ? (mn * 100).toFixed(1) + '%' : '—';
-  document.getElementById('info-max').textContent = mx !== null ? (mx * 100).toFixed(1) + '%' : '—';
+  document.getElementById('info-cur').textContent = cur !== null ? cur.toFixed(2) : '—';
+  document.getElementById('info-min').textContent = mn !== null ? mn.toFixed(2) : '—';
+  document.getElementById('info-max').textContent = mx !== null ? mx.toFixed(2) : '—';
   document.getElementById('info-delta').textContent = delta !== null
-    ? (delta >= 0 ? '+' : '') + (delta * 100).toFixed(1) + 'pp'
+    ? (delta >= 0 ? '+' : '') + delta.toFixed(2)
     : '—';
 
   chart = new Chart(ctx, {
@@ -287,12 +287,10 @@ function drawChart() {
           ticks: { color: '#3a6080', font: { size: 10 } },
         },
         y: {
-          min: 0,
-          max: 1,
           ticks: {
             color: '#3a6080',
             font: { size: 10 },
-            callback: v => (v * 100).toFixed(0) + '%',
+            callback: v => v.toFixed(2),
           },
           grid: { color: '#1a2e45' },
         },
@@ -301,7 +299,7 @@ function drawChart() {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: ctx => (ctx.parsed.y * 100).toFixed(1) + '%',
+            label: ctx => ctx.parsed.y.toFixed(2),
           },
         },
       },

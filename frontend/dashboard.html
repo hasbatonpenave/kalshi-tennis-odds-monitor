@@ -378,9 +378,9 @@ function updateCard(mid) {
       lblEl.textContent = player;
 
       if (odd !== undefined && odd !== null) {
-        oddEl.textContent = (odd * 100).toFixed(1) + '%';
+        oddEl.textContent = odd.toFixed(2);
         oddEl.classList.remove('no-data');
-        pctEl.textContent = (odd).toFixed(4);
+        pctEl.textContent = (1 / odd * 100).toFixed(1) + '%';
 
         let trendHtml = '';
         if (prevOdd !== undefined && prevOdd !== odd) {
@@ -388,7 +388,7 @@ function updateCard(mid) {
           trendHtml = `<span class="trend ${dir}">${dir==='up' ? '▲' : '▼'}</span>`;
           flashCell(cell, dir);
         }
-        oddEl.innerHTML = (odd * 100).toFixed(1) + '%' + trendHtml;
+        oddEl.innerHTML = odd.toFixed(2) + trendHtml;
       }
     } else {
       lblEl.textContent = '—';

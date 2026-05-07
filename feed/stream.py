@@ -258,11 +258,12 @@ def build_odds_update(
         if not player:
             continue
 
-        # Use last_price as the primary odds value
+        # Kalshi prices are implied probabilities (0-1). Convert to decimal odds.
         last_str = mkt.get("last_price_dollars", "")
         if last_str:
             try:
-                odds[player] = float(last_str)
+                prob = float(last_str)
+                odds[player] = round(1.0 / prob, 2) if prob > 0 else 1.0
             except (ValueError, TypeError):
                 continue
 

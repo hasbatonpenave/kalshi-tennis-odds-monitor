@@ -9,7 +9,7 @@ def make_update(**kwargs) -> OddsUpdate:
     defaults = dict(
         match_id="KXATPMATCH-26MAY06BASMER",
         market="moneyline",
-        odds={"Nikoloz Basilashvili": 0.40, "Daniel Merida": 0.61},
+        odds={"Nikoloz Basilashvili": 2.50, "Daniel Merida": 1.64},
         meta=MatchMeta(
             match_name="Basilashvili vs Merida",
             series="ATP Rome",
@@ -25,19 +25,19 @@ def make_update(**kwargs) -> OddsUpdate:
 def test_odds_update_valid():
     u = make_update()
     assert u.match_id == "KXATPMATCH-26MAY06BASMER"
-    assert u.odds["Nikoloz Basilashvili"] == 0.40
+    assert u.odds["Nikoloz Basilashvili"] == 2.50
     assert u.meta.match_name == "Basilashvili vs Merida"
     assert u.source == "kalshi"
 
 
-def test_odds_update_rejects_negative_odd():
-    with pytest.raises(Exception, match="out of range"):
-        make_update(odds={"Player A": -0.1, "Player B": 0.5})
+def test_odds_update_rejects_below_minimum():
+    with pytest.raises(Exception, match="below minimum"):
+        make_update(odds={"Player A": 0.5, "Player B": 1.5})
 
 
-def test_odds_update_rejects_above_one_odd():
-    with pytest.raises(Exception, match="out of range"):
-        make_update(odds={"Player A": 1.5, "Player B": 0.5})
+def test_odds_update_rejects_one():
+    with pytest.raises(Exception, match="below minimum"):
+        make_update(odds={"Player A": 1.0, "Player B": 2.0})
 
 
 def test_match_meta_update_live():
@@ -59,8 +59,8 @@ def test_match_meta_update_live_does_not_mutate_original():
 
 
 def test_price_point():
-    p = PricePoint(ts=1234567890.0, odd=0.55)
-    assert p.odd == 0.55
+    p = PricePoint(ts=1234567890.0, odd=1.82)
+    assert p.odd == 1.82
 
 
 def test_odds_update_serializes_to_json():
